@@ -14,10 +14,9 @@ from utils import logger
 class BaseAgent:
     def __init__(self, env, args, val_env=None):
         self.config = vars(args)
-        self.house_config = get_configs()
         self.env = env
         self.val_env = val_env
-        self.total_envs_per_rollout = env.num_envs * args.train_rollout_repeat
+        self.total_envs_per_rollout = args.num_envs * args.train_rollout_repeat
         self.train_mode = not args.test
         self.num_steps = args.num_steps
         self.noptepochs = args.noptepochs
@@ -29,7 +28,7 @@ class BaseAgent:
         self.log_interval = args.log_interval
         self.save_interval = args.save_interval
         self.max_iters = args.max_iters
-        nenvs = env.num_envs
+        nenvs = args.num_envs
         self.nbatch = nenvs * args.num_steps
 
         self.log_dir = os.path.join(args.save_dir, 'logs')

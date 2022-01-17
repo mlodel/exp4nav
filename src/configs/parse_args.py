@@ -5,7 +5,7 @@ def parse_arguments():
     parser = argparse.ArgumentParser(description='Argument Parser')
     parser.add_argument('--seed', dest='seed', type=int, default=1)
     parser.add_argument('--num_envs', type=int, default=8)
-    parser.add_argument('--train_rollout_repeat', '-trr', type=int, default=1,
+    parser.add_argument('--train_rollout_repeat', '-trr', type=int, default=2,
                         help='repeat rollout n times in training (mimic n * num_envs agents)')
     parser.add_argument('--disable-cuda', action='store_true',
                         help='Disable CUDA')
@@ -24,7 +24,7 @@ def parse_arguments():
     parser.add_argument('--max_depth', type=float, default=3,
                         help='depth limit for depth image, better greater than 3 (m)')
     parser.add_argument('--lr', dest='lr', type=float, default=0.00001)
-    parser.add_argument('--batch_size', type=int, default=64,
+    parser.add_argument('--batch_size', type=int, default=2,  # 64
                         help='batch size')
     parser.add_argument('--weight_decay', type=float, default=0.00,
                         help='weight_decay')
@@ -34,7 +34,7 @@ def parse_arguments():
                         help='logging every n episodes/iterations')
     parser.add_argument('--max_iters', type=int, default=1000000,
                         help='maximum number of episodes/iterations')
-    parser.add_argument('--num_steps', type=int, default=1000,
+    parser.add_argument('--num_steps', type=int, default=100,
                         help='number of steps in an episode')
     parser.add_argument('--noptepochs', type=int, default=5,
                         help='network training epochs in each iteration')
@@ -42,7 +42,7 @@ def parse_arguments():
                         help='gamma to calculate return')
     parser.add_argument('--fix_cnn', action='store_true',
                         help='fix cnn(resnet18) weights')
-    parser.add_argument('--rnn_seq_len', type=int, default=20,
+    parser.add_argument('--rnn_seq_len', type=int, default=100,  # 20
                         help='sequence length in training rnn')
     parser.add_argument('--rnn_hidden_dim', type=int, default=128,
                         help='rnn hidden layer dimension')

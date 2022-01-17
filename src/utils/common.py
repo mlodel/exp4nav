@@ -1,6 +1,8 @@
 import numpy as np
 import torch
 
+import cv2
+
 
 def safemean(xs):
     return np.nan if len(xs) == 0 else np.mean(xs)
@@ -24,6 +26,28 @@ def explained_variance(ypred, y):
 
 
 def imagenet_rgb_preprocess(imgs, device=torch.device('cpu')):
+    if len(imgs.shape) == 3:  # Rollout
+        imgs = np.stack((imgs,) * 3, axis=-1)
+        if not isinstance(imgs, torch.Tensor):
+            imgs = torch.from_numpy(imgs).float()
+        imgs = imgs.unsqueeze(dim=0)
+        imgs = imgs.permute(0, 1, 4, 2, 3).to(device)  # (Seq, N, C, H, W)
+    if len(imgs.shape) == 4:  # Train
+        imgs = np.stack((imgs,) * 3, axis=-1)
+        if not isinstance(imgs, torch.Tensor):
+            imgs = torch.from_numpy(imgs).float()
+        imgs = imgs.permute(0, 1, 4, 2, 3).to(device)  # (Seq, N, C, H, W)
+    imgs = imgs / 255.0
+    rgb_mean = torch.tensor([0.485, 0.456, 0.406], device=device)
+    rgb_std = torch.tensor([0.229, 0.224, 0.225], device=device)
+    rgb_mean = rgb_mean[None, None, :, None, None]
+    rgb_std = rgb_std[None, None, :, None, None]
+    imgs = (imgs - rgb_mean) / rgb_std
+    return imgs
+
+
+def imagenet_grayscale_preprocess(imgs, device=torch.device('cpu')):
+    imgs = cv2.cvtColor(imgs, cv2.COLOR_GRAY2RGB)
     if not isinstance(imgs, torch.Tensor):
         imgs = torch.from_numpy(imgs).float()
     if len(imgs.shape) == 4:
@@ -36,6 +60,22 @@ def imagenet_rgb_preprocess(imgs, device=torch.device('cpu')):
     rgb_std = rgb_std[None, None, :, None, None]
     imgs = (imgs - rgb_mean) / rgb_std
     return imgs
+
+
+def states_preprocess(states, device=torch.device('cpu')):
+    if not isinstance(states, torch.Tensor):
+        states = torch.from_numpy(states).float()
+    if len(states.shape) == 2:
+        states = states.unsqueeze(dim=0)
+
+    # TODO normalize
+
+    # rgb_mean = torch.tensor([0.485, 0.456, 0.406], device=device)
+    # rgb_std = torch.tensor([0.229, 0.224, 0.225], device=device)
+    # rgb_mean = rgb_mean[None, None, :, None, None]
+    # rgb_std = rgb_std[None, None, :, None, None]
+    # imgs = (imgs - rgb_mean) / rgb_std
+    return states
 
 
 class LinearSchedule(object):

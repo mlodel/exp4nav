@@ -62,7 +62,10 @@ class SubprocVecEnv(VecEnv):
         results = [remote.recv() for remote in self.remotes]
         self.waiting = False
         obs, rews, dones, infos = zip(*results)
-        if isinstance(obs[0], tuple):
+        if isinstance(obs[0], dict):
+            xobs = {k: np.stack([dic[0][k] for dic in obs]) for k in obs[0][0]}
+            return xobs, np.stack(rews), np.stack(dones), infos
+        if isinstance(obs[0], tuple) or isinstance(obs[0], list):
             pobs = zip(*obs)
             xobs = [np.stack(x) for x in pobs]
             return xobs, np.stack(rews), np.stack(dones), infos
@@ -74,6 +77,9 @@ class SubprocVecEnv(VecEnv):
         for remote, cond in zip(self.remotes, conds):
             remote.send(('reset', cond))
         obs = [remote.recv() for remote in self.remotes]
+        if isinstance(obs[0], dict):
+            xobs = {k: np.stack([dic[0][k] for dic in obs]) for k in obs[0][0]}
+            return xobs
         if isinstance(obs[0], tuple):
             pobs = zip(*obs)
             xobs = [np.stack(x) for x in pobs]
