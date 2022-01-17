@@ -281,7 +281,6 @@ class PPOAgentIG(BaseAgent):
             env = self.env
             obs_uint8 = env.reset()
 
-        # TODO infos
         epinfos = {
             'reward': 0.0,
             'ig_reward': 0.0,
@@ -293,7 +292,7 @@ class PPOAgentIG(BaseAgent):
             'n_steps_avg': 0
         }
         # Init hidden states
-        # hidden_state = self.net_model.init_hidden(batch_size=self.config['num_envs'])
+        self.hidden_state = self.net_model.init_hidden(batch_size=self.config['num_envs'])
 
         # TODO move elsewhere
         state_keys = ['radius', 'heading_global_frame', 'angvel_global_frame', 'pos_global_frame', 'vel_global_frame']
@@ -327,13 +326,12 @@ class PPOAgentIG(BaseAgent):
             obs_uint8, rewards, dones, infos = env.step(actions.cpu().data.numpy().flatten())
 
             # Save Rewards Expert Actions
-            # TODO infos
             mb_rewards.append(rewards)
             mb_mpc_actions.append(np.stack([info["mpc_actions"] for info in infos]))
 
-            # Reset hidden states for completed episodes
+            # TODO Reset hidden states for completed episodes
             done_idc = np.array(dones.nonzero()).squeeze()
-            self.hidden_state[:, done_idc, :] *= 0.0
+            # self.hidden_state[:, done_idc, :] *= 0.0
 
             # Save Episode Infos
             self.reward_counter += rewards
