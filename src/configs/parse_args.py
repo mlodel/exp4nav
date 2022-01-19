@@ -4,7 +4,7 @@ import argparse
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Argument Parser')
     parser.add_argument('--seed', dest='seed', type=int, default=1)
-    parser.add_argument('--num_envs', type=int, default=24)
+    parser.add_argument('--num_envs', type=int, default=8)
     parser.add_argument('--train_rollout_repeat', '-trr', type=int, default=1,
                         help='repeat rollout n times in training (mimic n * num_envs agents)')
     parser.add_argument('--disable-cuda', action='store_true',
@@ -18,7 +18,7 @@ def parse_arguments():
                         help='batch size')
     parser.add_argument('--weight_decay', type=float, default=0.00,
                         help='weight_decay')
-    parser.add_argument('--save_interval', type=int, default=10,
+    parser.add_argument('--save_interval', type=int, default=100,
                         help='save model every n episodes/iterations')
     parser.add_argument('--log_interval', type=int, default=1,
                         help='logging every n episodes/iterations')

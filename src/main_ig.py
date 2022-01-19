@@ -74,8 +74,14 @@ def main():
         # os.makedirs(plot_save_dir, exist_ok=True)
         env.env_method('set_plot_save_dir', plot_save_dir, indices=i)
         env.env_method('set_n_env', args.num_envs, i, indices=i)
+
+        plot_save_dir = save_path + '/figures/figs_test_env' + str(i) + '/'
+        val_env.env_method('set_plot_save_dir', plot_save_dir, indices=i)
+        val_env.env_method('set_n_env', args.num_envs, i, indices=i)
+        val_env.env_method('set_use_expert_action', 1, True, 'ig_greedy', False, 0.0, True, indices=i)
         if i != 0:
             env.env_method('set_plot_env', False, indices=i)
+            # val_env.env_method('set_plot_env', False, indices=i)
 
     agent = PPOAgentIG(env=env, args=args, val_env=val_env)
 
