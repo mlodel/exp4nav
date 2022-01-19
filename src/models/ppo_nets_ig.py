@@ -120,7 +120,7 @@ class PPONetsIG(nn.Module):
 
         expert_log_prob = dist.log_prob(expert_action) if expert_action is not None else None
 
-        return action, log_prob, dist.entropy(), val, hidden_state.detach(), pi, expert_log_prob
+        return action, log_prob, dist.entropy(), val, hidden_state, pi, expert_log_prob
 
     def init_hidden(self, batch_size):
         # The axes semantics are (num_layers, minibatch_size, hidden_dim)

@@ -75,7 +75,7 @@ def states_preprocess(states, device=torch.device('cpu')):
     # rgb_mean = rgb_mean[None, None, :, None, None]
     # rgb_std = rgb_std[None, None, :, None, None]
     # imgs = (imgs - rgb_mean) / rgb_std
-    return states
+    return states.to(device)
 
 
 class LinearSchedule(object):

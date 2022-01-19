@@ -34,10 +34,10 @@ class BaseAgent:
         self.log_dir = os.path.join(args.save_dir, 'logs')
         self.model_dir = os.path.join(args.save_dir, 'model')
         if self.train_mode and not args.resume:
-            dele = input("Do you wanna recreate ckpt and log folders? (y/n)")
-            if dele == 'y':
-                if os.path.exists(args.save_dir):
-                    shutil.rmtree(args.save_dir)
+            # dele = input("Do you wanna recreate ckpt and log folders? (y/n)")
+            # if dele == 'y':
+            #     if os.path.exists(args.save_dir):
+            #         shutil.rmtree(args.save_dir)
             os.makedirs(self.log_dir, exist_ok=True)
             os.makedirs(self.model_dir, exist_ok=True)
         if not args.test:

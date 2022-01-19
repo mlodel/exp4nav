@@ -36,8 +36,9 @@ class PPOAgentIG(BaseAgent):
 
         self.reward_counter = np.zeros(self.config['num_envs'])
         self.reward_ig_counter = np.zeros(self.config['num_envs'])
+        self.eps_steps_counter = np.zeros(self.config['num_envs'])
         self.iter_bc_pretrain = 1e6 // (self.config['num_envs'] * self.num_steps)
-        self.iter_bc_decay = 2 * self.iter_bc_pretrain
+        self.iter_bc_decay = 1.5 * self.iter_bc_pretrain
 
         self.hidden_state = self.net_model.init_hidden(self.config['num_envs'])
 
@@ -123,13 +124,13 @@ class PPOAgentIG(BaseAgent):
             if iter % self.config['log_interval'] == 0:
                 logger.logkv("train/Learning rate", self.optimizer.param_groups[0]['lr'])
                 logger.logkv("info/per_env_timesteps", iter * self.num_steps)
-                logger.logkv("info/iter", iter)
+                logger.logkv("iter", iter)
                 logger.logkv("info/total_timesteps", iter * self.nbatch)
                 logger.logkv("info/fps", fps)
                 logger.logkv("train/bc_factor", bc_factor)
                 for epinfo in epinfos:
                     for key in epinfo.keys():
-                        logger.logkv('rollouts' + key, epinfo[key])
+                        logger.logkv('rollouts/' + key, epinfo[key])
                 logger.logkv('time_elapsed', tnow - t_trainstart)
                 for name, value in lossvals.items():
                     logger.logkv('train/'+name, np.mean(value))
@@ -212,7 +213,7 @@ class PPOAgentIG(BaseAgent):
                                        1 + self.config['cliprange'])
         pg_loss = torch.mean(torch.max(pg_loss1, pg_loss2))
 
-        bc_loss = torch.mean(mpc_log_probs)
+        bc_loss = -torch.mean(mpc_log_probs)
 
         policy_loss = (1 - bc_factor) * pg_loss + bc_factor * bc_loss
 
@@ -275,7 +276,7 @@ class PPOAgentIG(BaseAgent):
         mb_mpc_actions = []
 
         if val:
-            env = self.val_env
+            env = self.env
             obs_uint8 = env.reset()
         else:
             env = self.env
@@ -336,13 +337,16 @@ class PPOAgentIG(BaseAgent):
             # Save Episode Infos
             self.reward_counter += rewards
             self.reward_ig_counter += np.asarray([info["ig_reward"] for info in infos])
-            if done_idc.size > 0:
-                for i in done_idc.tolist():
+            # if done_idc.size > 0 or idx == self.num_steps-1:
+            #     for i in done_idc.tolist():
+            if idx == self.num_steps-1:
+                for i in range(self.config['num_envs']):
                     epinfos['n_episodes'] += 1
-                    epinfos['reward'] += self.reward_counter
+                    epinfos['reward'] += self.reward_counter[i]
                     self.reward_counter[i] = 0.0
-                    epinfos['ig_reward'] += self.reward_ig_counter
+                    epinfos['ig_reward'] += self.reward_ig_counter[i]
                     self.reward_ig_counter[i] = 0.0
+                    epinfos['n_steps_avg'] += infos[i]['step_num']
                     epinfos['n_timeout'] += infos[i]["ran_out_of_time"]
                     epinfos['n_collision'] += infos[i]["in_collision"]
                     epinfos['n_deadlocked'] += infos[i]["deadlocked"]
@@ -359,6 +363,8 @@ class PPOAgentIG(BaseAgent):
 
         if epinfos['n_episodes'] > 0:
             for key in epinfos.keys():
+                if key == "n_episodes":
+                    continue
                 epinfos[key] = epinfos[key] / epinfos['n_episodes']
 
         # Compute Value of last state for advantage computation

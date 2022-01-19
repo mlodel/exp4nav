@@ -4,37 +4,27 @@ import argparse
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Argument Parser')
     parser.add_argument('--seed', dest='seed', type=int, default=1)
-    parser.add_argument('--num_envs', type=int, default=8)
-    parser.add_argument('--train_rollout_repeat', '-trr', type=int, default=2,
+    parser.add_argument('--num_envs', type=int, default=24)
+    parser.add_argument('--train_rollout_repeat', '-trr', type=int, default=1,
                         help='repeat rollout n times in training (mimic n * num_envs agents)')
     parser.add_argument('--disable-cuda', action='store_true',
                         help='Disable CUDA')
     parser.add_argument('--large_map_size', type=int, default=80,
                         help='large map size')
-    parser.add_argument('--use_rgb_with_map', action='store_true',
-                        help='use rgb image as input as well besides map')
-    parser.add_argument('--start_indoor', action='store_true',
-                        help='agent starts from an indoor position')
-    parser.add_argument('--render_door', action='store_true',
-                        help='whether to render door or not')
     parser.add_argument('--num_gpu', type=int, default=1,
                         help='number of gpu for rendering')
-    parser.add_argument('--ob_dilation_kernel', type=int, default=5,
-                        help='kernel size for obstacle dilation')
-    parser.add_argument('--max_depth', type=float, default=3,
-                        help='depth limit for depth image, better greater than 3 (m)')
     parser.add_argument('--lr', dest='lr', type=float, default=0.00001)
-    parser.add_argument('--batch_size', type=int, default=2,  # 64
+    parser.add_argument('--batch_size', type=int, default=4,  # 64
                         help='batch size')
     parser.add_argument('--weight_decay', type=float, default=0.00,
                         help='weight_decay')
-    parser.add_argument('--save_interval', type=int, default=30,
+    parser.add_argument('--save_interval', type=int, default=10,
                         help='save model every n episodes/iterations')
-    parser.add_argument('--log_interval', type=int, default=5,
+    parser.add_argument('--log_interval', type=int, default=1,
                         help='logging every n episodes/iterations')
     parser.add_argument('--max_iters', type=int, default=1000000,
                         help='maximum number of episodes/iterations')
-    parser.add_argument('--num_steps', type=int, default=100,
+    parser.add_argument('--num_steps', type=int, default=128,
                         help='number of steps in an episode')
     parser.add_argument('--noptepochs', type=int, default=5,
                         help='network training epochs in each iteration')
@@ -42,12 +32,12 @@ def parse_arguments():
                         help='gamma to calculate return')
     parser.add_argument('--fix_cnn', action='store_true',
                         help='fix cnn(resnet18) weights')
-    parser.add_argument('--rnn_seq_len', type=int, default=100,  # 20
+    parser.add_argument('--rnn_seq_len', type=int, default=128,  # 20
                         help='sequence length in training rnn')
     parser.add_argument('--rnn_hidden_dim', type=int, default=128,
                         help='rnn hidden layer dimension')
     parser.add_argument('--rnn_type', help='lstm or gru',
-                        default='gru', choices=['gru', 'lstm'], type=str)
+                        default='lstm', choices=['gru', 'lstm'], type=str)
     parser.add_argument('--rnn_num', help='number of rnn layers',
                         default=1, type=int)
     parser.add_argument('--area_reward_scale', type=float, default=0.0005,

@@ -28,6 +28,13 @@ def worker(remote, parent_remote, env_fn_wrapper):
             break
         elif cmd == 'get_spaces':
             remote.send((env.observation_space, env.action_space))
+        elif cmd == 'env_method':
+            method = getattr(env, data[0])
+            remote.send(method(*data[1], **data[2]))
+        elif cmd == 'get_attr':
+            remote.send(getattr(env, data))
+        elif cmd == 'set_attr':
+            remote.send(setattr(env, data[0], data[1]))
         else:
             raise NotImplementedError
 
@@ -101,3 +108,49 @@ class SubprocVecEnv(VecEnv):
         for p in self.ps:
             p.join()
         self.closed = True
+
+    def get_attr(self, attr_name, indices=None):
+        """Return attribute from vectorized environment (see base class)."""
+        target_remotes = self._get_target_remotes(indices)
+        for remote in target_remotes:
+            remote.send(('get_attr', attr_name))
+        return [remote.recv() for remote in target_remotes]
+
+    def set_attr(self, attr_name, value, indices=None):
+        """Set attribute inside vectorized environments (see base class)."""
+        target_remotes = self._get_target_remotes(indices)
+        for remote in target_remotes:
+            remote.send(('set_attr', (attr_name, value)))
+        for remote in target_remotes:
+            remote.recv()
+
+    def env_method(self, method_name, *method_args, indices=None, **method_kwargs):
+        """Call instance methods of vectorized environments."""
+        target_remotes = self._get_target_remotes(indices)
+        for remote in target_remotes:
+            remote.send(('env_method', (method_name, method_args, method_kwargs)))
+        return [remote.recv() for remote in target_remotes]
+
+    def _get_target_remotes(self, indices):
+        """
+        Get the connection object needed to communicate with the wanted
+        envs that are in subprocesses.
+
+        :param indices: (None,int,Iterable) refers to indices of envs.
+        :return: ([multiprocessing.Connection]) Connection object to communicate between processes.
+        """
+        indices = self._get_indices(indices)
+        return [self.remotes[i] for i in indices]
+
+    def _get_indices(self, indices):
+        """
+        Convert a flexibly-typed reference to environment indices to an implied list of indices.
+
+        :param indices: (None,int,Iterable) refers to indices of envs.
+        :return: (list) the implied list of indices.
+        """
+        if indices is None:
+            indices = range(self.num_envs)
+        elif isinstance(indices, int):
+            indices = [indices]
+        return indices
