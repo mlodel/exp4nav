@@ -62,7 +62,7 @@ def main():
 
         return int(id)
 
-    log_path = '/home/user/code/exploration_project/exp4nav' + '/data'
+    log_path = os.getcwd() + '/data'
     save_path = os.path.join(log_path, "log_{}".format(get_latest_run_id(log_path) + 1))
     args.save_dir = save_path
 
@@ -71,7 +71,7 @@ def main():
     # Save plot trajectories
     for i in range(args.num_envs):
         plot_save_dir = save_path + '/figures/figs_env' + str(i) + '/'
-        os.makedirs(plot_save_dir, exist_ok=True)
+        # os.makedirs(plot_save_dir, exist_ok=True)
         env.env_method('set_plot_save_dir', plot_save_dir, indices=i)
         env.env_method('set_n_env', args.num_envs, i, indices=i)
         if i != 0:
