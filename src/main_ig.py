@@ -70,15 +70,15 @@ def main():
 
     # Save plot trajectories
     for i in range(args.num_envs):
-        plot_save_dir = save_path + '/figures/figs_env' + str(i) + '/'
+        plot_save_dir = save_path + '/figures_train/figs_env' + str(i) + '/'
         # os.makedirs(plot_save_dir, exist_ok=True)
         env.env_method('set_plot_save_dir', plot_save_dir, indices=i)
-        env.env_method('set_n_env', args.num_envs, i, indices=i)
+        env.env_method('set_n_env', args.num_envs, i, False, indices=i)
 
-        plot_save_dir = save_path + '/figures/figs_test_env' + str(i) + '/'
+        plot_save_dir = save_path + '/figures_test/figs_env' + str(i) + '/'
         val_env.env_method('set_plot_save_dir', plot_save_dir, indices=i)
-        val_env.env_method('set_n_env', args.num_envs, i, indices=i)
-        val_env.env_method('set_use_expert_action', 1, True, 'ig_greedy', False, 0.0, True, indices=i)
+        val_env.env_method('set_n_env', args.num_envs, i, True, indices=i)
+        val_env.env_method('set_use_expert_action', 0, False, None, False, 1.0, False, indices=i)
         if i != 0:
             env.env_method('set_plot_env', False, indices=i)
             # val_env.env_method('set_plot_env', False, indices=i)

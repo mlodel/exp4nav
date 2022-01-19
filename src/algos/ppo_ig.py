@@ -37,16 +37,24 @@ class PPOAgentIG(BaseAgent):
         self.reward_counter = np.zeros(self.config['num_envs'])
         self.reward_ig_counter = np.zeros(self.config['num_envs'])
         self.eps_steps_counter = np.zeros(self.config['num_envs'])
-        self.iter_bc_pretrain = 1e6 // (self.config['num_envs'] * self.num_steps)
+        self.iter_bc_pretrain = 0.8e6 // (self.config['num_envs'] * self.num_steps)
         self.iter_bc_decay = 1.5 * self.iter_bc_pretrain
+
         self.bc_dagger = True
         self.bc_dagger_beta = 0.0
 
+        self.curriculum_learning_iters = np.array([2e6 // self.nbatch, 4e6 // self.nbatch])
+        self.curriculum_learning_start = 1
+
         self.hidden_state = self.net_model.init_hidden(self.config['num_envs'])
+        self.val_env_obs = None
 
     def train(self):
         epinfobuf = deque(maxlen=10)
         t_trainstart = time.time()
+
+        self.val_env_obs = self.val_env.reset()
+
         for iter in range(self.global_iter, self.max_iters):
             self.global_iter = iter
             t_iterstart = time.time()
@@ -55,6 +63,7 @@ class PPOAgentIG(BaseAgent):
             if iter % self.config['save_interval'] == 0 and logger.get_dir():
                 with torch.no_grad():
                     res = self.rollout(val=True)
+                    self.val_env_obs = self.val_env.reset()
                     obs, actions, returns, values, advs, log_probs, mpc_actions, epinfos = res
                 logger.logkv("iter", iter)
                 logger.logkv("test/total_timesteps", iter * self.nbatch)
@@ -133,10 +142,10 @@ class PPOAgentIG(BaseAgent):
                 logger.logkv("iter", iter)
                 logger.logkv("info/total_timesteps", iter * self.nbatch)
                 logger.logkv("info/fps", fps)
+                logger.logkv('rollouts/returns', np.mean(returns[0, :]))
                 for epinfo in epinfos:
                     for key in epinfo.keys():
                         logger.logkv('rollouts/' + key, epinfo[key])
-                logger.logkv('rollouts/returns', np.mean(returns.cpu().data.numpy()))
                 logger.logkv('info/time_elapsed', tnow - t_trainstart)
                 for name, value in lossvals.items():
                     logger.logkv('train/' + name, np.mean(value))
@@ -284,9 +293,16 @@ class PPOAgentIG(BaseAgent):
         mb_values, mb_log_probs = [], []
         mb_mpc_actions = []
 
+        # Set Curriculum Learning
+        lvls_reached = np.where(self.global_iter >= self.curriculum_learning_iters)
+        current_level = lvls_reached[0][-1] + 1 if lvls_reached[0].size > 0 else 0
+        n_obstacles = current_level + 1
+
         if val:  # Test Rollout
+            self.val_env.env_method('set_n_obstacles', n_obstacles)
             env = self.val_env
-            obs_uint8 = env.reset()
+            # obs_uint8 = env.reset()
+            obs_uint8 = self.val_env_obs
         else:  # Training Rollout
             # Set up Dagger and Expert in Env
             use_expert = self.global_iter <= self.iter_bc_pretrain
@@ -295,8 +311,9 @@ class PPOAgentIG(BaseAgent):
                 self.bc_dagger_beta = np.clip((-1 / self.iter_bc_pretrain * self.global_iter + 1), 0.0, 1.0)
             self.env.env_method('set_use_expert_action', 1, use_expert, 'ig_greedy', self.bc_dagger,
                                 self.bc_dagger_beta, comp_expert)
-            env = self.env
 
+            self.env.env_method('set_n_obstacles', n_obstacles)
+            env = self.env
             # Reset env
             obs_uint8 = env.reset()
 
