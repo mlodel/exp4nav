@@ -25,24 +25,27 @@ def explained_variance(ypred, y):
     return np.nan if vary == 0 else 1 - np.var(y - ypred) / vary
 
 
-def imagenet_rgb_preprocess(imgs, device=torch.device('cpu')):
-    if len(imgs.shape) == 3:  # Rollout
-        imgs = np.stack((imgs,) * 3, axis=-1)
-        if not isinstance(imgs, torch.Tensor):
-            imgs = torch.from_numpy(imgs).float()
-        imgs = imgs.unsqueeze(dim=0)
-        imgs = imgs.permute(0, 1, 4, 2, 3).to(device)  # (Seq, N, C, H, W)
-    if len(imgs.shape) == 4:  # Train
-        imgs = np.stack((imgs,) * 3, axis=-1)
-        if not isinstance(imgs, torch.Tensor):
-            imgs = torch.from_numpy(imgs).float()
-        imgs = imgs.permute(0, 1, 4, 2, 3).to(device)  # (Seq, N, C, H, W)
-    imgs = imgs / 255.0
-    rgb_mean = torch.tensor([0.485, 0.456, 0.406], device=device)
-    rgb_std = torch.tensor([0.229, 0.224, 0.225], device=device)
-    rgb_mean = rgb_mean[None, None, :, None, None]
-    rgb_std = rgb_std[None, None, :, None, None]
-    imgs = (imgs - rgb_mean) / rgb_std
+def imagenet_rgb_preprocess(imgs, device=torch.device('cpu'), output_rgb=True):
+    if not isinstance(imgs, torch.Tensor):
+        imgs = torch.from_numpy(imgs).float()
+
+    if output_rgb:
+        imgs = torch.stack((imgs,) * 3, dim=-1)
+    else:
+        imgs = imgs.unsqueeze(dim=-1)
+
+    if len(imgs.shape) == 4:  # Rollout
+        imgs = imgs.unsqueeze(dim=0) # Sequence dim
+
+    imgs = imgs.permute(0, 1, 4, 2, 3).to(device)  # (Seq, N, C, H, W)
+    # imgs = imgs / 255.0
+    if output_rgb:
+        rgb_mean = torch.tensor([0.485, 0.456, 0.406], device=device)
+        rgb_std = torch.tensor([0.229, 0.224, 0.225], device=device)
+        rgb_mean = rgb_mean[None, None, :, None, None]
+        rgb_std = rgb_std[None, None, :, None, None]
+        imgs = (imgs - rgb_mean) / rgb_std
+
     return imgs
 
 
@@ -62,20 +65,39 @@ def imagenet_grayscale_preprocess(imgs, device=torch.device('cpu')):
     return imgs
 
 
-def states_preprocess(states, device=torch.device('cpu')):
+def states_preprocess(obs, device=torch.device('cpu')):
+
+    if isinstance(obs, dict):
+        state_keys = ['heading_global_frame', 'angvel_global_frame', 'pos_global_frame', 'vel_global_frame']
+        # Normalize States
+        state_bounds = dict()
+        state_bounds['heading_global_frame'] = [-np.pi, np.pi]
+        state_bounds['angvel_global_frame'] = [-3.0, 3.0]
+        state_bounds['pos_global_frame'] = [np.array([-10.0, -10.0]), np.array([10.0, 10.0])]
+        state_bounds['vel_global_frame'] = [np.array([-3.0, -3.0]), np.array([3.0, 3.0])]
+
+        obs_env = []
+        for i in range(list(obs.values())[0].size):
+            obs_keys = []
+            for key in state_keys:
+                obs_norm = ((obs[key][i]-state_bounds[key][0]) * 2 / (state_bounds[key][1] - state_bounds[key][0])) - 1.0
+                obs_keys.append(obs_norm)
+            obs_env.append(np.hstack(obs_keys))
+        obs_states = np.stack(obs_env)
+
+        # obs_states = np.stack([np.hstack([obs_uint8[key][i] for key in state_keys])
+        #                        for i in range(self.config['num_envs'])])
+
+    else:
+        obs_states = obs
+
+    states = obs_states
     if not isinstance(states, torch.Tensor):
         states = torch.from_numpy(states).float()
     if len(states.shape) == 2:
         states = states.unsqueeze(dim=0)
 
-    # TODO normalize
-
-    # rgb_mean = torch.tensor([0.485, 0.456, 0.406], device=device)
-    # rgb_std = torch.tensor([0.229, 0.224, 0.225], device=device)
-    # rgb_mean = rgb_mean[None, None, :, None, None]
-    # rgb_std = rgb_std[None, None, :, None, None]
-    # imgs = (imgs - rgb_mean) / rgb_std
-    return states.to(device)
+    return states.to(device), obs_states
 
 
 class LinearSchedule(object):

@@ -4,7 +4,7 @@ import argparse
 def parse_arguments():
     parser = argparse.ArgumentParser(description='Argument Parser')
     parser.add_argument('--seed', dest='seed', type=int, default=1)
-    parser.add_argument('--num_envs', type=int, default=8)
+    parser.add_argument('--num_envs', type=int, default=16)
     parser.add_argument('--train_rollout_repeat', '-trr', type=int, default=1,
                         help='repeat rollout n times in training (mimic n * num_envs agents)')
     parser.add_argument('--disable-cuda', action='store_true',
@@ -26,7 +26,7 @@ def parse_arguments():
                         help='maximum number of episodes/iterations')
     parser.add_argument('--num_steps', type=int, default=128,
                         help='number of steps in an episode')
-    parser.add_argument('--noptepochs', type=int, default=5,
+    parser.add_argument('--noptepochs', type=int, default=2,  # 5
                         help='network training epochs in each iteration')
     parser.add_argument('--gamma', type=float, default=0.99,
                         help='gamma to calculate return')
@@ -37,7 +37,7 @@ def parse_arguments():
     parser.add_argument('--rnn_hidden_dim', type=int, default=128,
                         help='rnn hidden layer dimension')
     parser.add_argument('--rnn_type', help='lstm or gru',
-                        default='lstm', choices=['gru', 'lstm'], type=str)
+                        default='gru', choices=['gru', 'lstm'], type=str)
     parser.add_argument('--rnn_num', help='number of rnn layers',
                         default=1, type=int)
     parser.add_argument('--area_reward_scale', type=float, default=0.0005,

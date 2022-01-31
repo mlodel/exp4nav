@@ -52,15 +52,16 @@ def main():
 
     def get_latest_run_id(log_path):
         p = os.listdir(log_path)
-        p = [item for item in p if os.path.isdir(log_path+'/'+item)]
+        p = [item for item in p if os.path.isdir(log_path + '/' + item)]
 
         if len(p) > 0:
+            p = list(map(lambda fname: int(fname.split('_')[1]), p))
             p.sort()
-            [_, id] = p[-1].split("_")
+            id = p[-1]
         else:
-            id = "0"
+            id = 0
 
-        return int(id)
+        return id
 
     log_path = os.getcwd() + '/data'
     save_path = os.path.join(log_path, "log_{}".format(get_latest_run_id(log_path) + 1))
@@ -83,6 +84,8 @@ def main():
             env.env_method('set_plot_env', False, indices=i)
             # val_env.env_method('set_plot_env', False, indices=i)
 
+    args.rnn_type = None
+    args.fix_cnn = True
     agent = PPOAgentIG(env=env, args=args, val_env=val_env)
 
     if args.test:

@@ -1,10 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.distributions.categorical import Categorical
-from torch.distributions.multivariate_normal import MultivariateNormal
-from torchvision import models
-
+from torch.distributions import Categorical, Independent, Normal, MultivariateNormal
+from models.cnn_encoders import CNN3Layer, CNN3Layer_old, ResNetEnc
 
 class PPONetsIG(nn.Module):
     def __init__(self,
@@ -21,45 +19,47 @@ class PPONetsIG(nn.Module):
         self.rnn_hidden_dim = rnn_hidden_dim
         self.rnn_num = rnn_num
 
-        num_states = 7
+        num_states = 6
 
         # TODO choose action space and distribution
         # TODO Gaussians std learnable
 
-        self.large_map_resnet_model = models.resnet18(pretrained=True)
-        self.small_map_resnet_model = models.resnet18(pretrained=True)
-        resnet_models = [self.large_map_resnet_model,
-                         self.small_map_resnet_model]
+        self.large_map_encoder = ResNetEnc(img_size=80, img_ch=3, out_ftrs=128)
+        self.small_map_encoder = ResNetEnc(img_size=80, img_ch=3, out_ftrs=128)
+        cnn_models = [self.large_map_encoder,
+                         self.small_map_encoder]
         if fix_cnn:
-            for model in resnet_models:
-                for param in model:
-                    param.requires_grad = False
-        num_ftrs = self.large_map_resnet_model.fc.in_features
-        num_in = 0
-
-        self.large_map_resnet_model.avgpool = nn.AvgPool2d(3, stride=1)
-        self.large_map_resnet_model.fc = nn.Linear(num_ftrs, 128)
-        num_in += 128
-        self.small_map_resnet_model.avgpool = nn.AvgPool2d(3, stride=1)
-        self.small_map_resnet_model.fc = nn.Linear(num_ftrs, 128)
-        num_in += 128
+            for model in cnn_models:
+                for name, param in model.named_parameters():
+                    if name not in ['network.fc.weight', 'network.fc.bias']:
+                        param.requires_grad = False
+                    else:
+                        continue
 
         self.state_encoder = nn.Sequential(
             nn.Linear(num_states, 128),
+            # nn.BatchNorm1d(32),
+            nn.ELU(),
+            # nn.Linear(32, 128),
+        )
+        num_in = 3*128
+
+        self.merge_fc = nn.Sequential(
+            nn.Linear(num_in, rnn_hidden_dim),
             nn.ELU(),
         )
-        num_in += 128
+        if rnn_type is not None:
+            if rnn_type == 'gru':
+                rnn_cell = nn.GRU
+            elif rnn_type == 'lstm':
+                rnn_cell = nn.LSTM
+            else:
+                raise ValueError('unsupported rnn type: %s' % rnn_type)
 
-        self.merge_fc = nn.Linear(num_in, rnn_hidden_dim)
-        if rnn_type == 'gru':
-            rnn_cell = nn.GRU
-        elif rnn_type == 'lstm':
-            rnn_cell = nn.LSTM
-        else:
-            raise ValueError('unsupported rnn type: %s' % rnn_type)
-        self.rnn = rnn_cell(input_size=rnn_hidden_dim,
-                            hidden_size=rnn_hidden_dim,
-                            num_layers=rnn_num)
+            self.rnn = rnn_cell(input_size=rnn_hidden_dim,
+                                hidden_size=rnn_hidden_dim,
+                                num_layers=rnn_num)
+
         self.actor_fc = nn.Sequential(
             nn.Linear(rnn_hidden_dim, 32),
             nn.ELU(),
@@ -72,7 +72,7 @@ class PPONetsIG(nn.Module):
         self.critic_head = nn.Linear(32, 1)
 
         # TODO init distributions
-        self.log_std = nn.Parameter(torch.ones(act_dim))
+        self.log_std = nn.Parameter(torch.zeros(act_dim, requires_grad=True))
 
         self.reset_parameters()
         print('========= requires_grad =========')
@@ -85,31 +85,31 @@ class PPONetsIG(nn.Module):
 
     def forward(self, large_maps, small_maps, states,
                 hidden_state=None, action=None, deterministic=False, expert_action=None):
-        seq_len, batch_size, C, H, W = large_maps.size()
-        large_maps = large_maps.view(batch_size * seq_len, C, H, W)
-        l_cnn_out = self.large_map_resnet_model(large_maps)
-        l_cnn_out = l_cnn_out.view(seq_len, batch_size, -1)
 
-        seq_len, batch_size, C, H, W = small_maps.size()
-        small_maps = small_maps.view(batch_size * seq_len, C, H, W)
-        s_cnn_out = self.small_map_resnet_model(small_maps)
-        s_cnn_out = s_cnn_out.view(seq_len, batch_size, -1)
+        l_cnn_out = self.large_map_encoder(large_maps)
 
-        seq_len, batch_size, dims = states.size()
-        states = states.view(batch_size * seq_len, dims)
+        s_cnn_out = self.small_map_encoder(small_maps)
+
+        # seq_len, batch_size, dims = states.size()
+        # states = states.reshape(batch_size * seq_len, dims)
         st_fc_out = self.state_encoder(states)
-        st_fc_out = st_fc_out.view(seq_len, batch_size, -1)
+        # st_fc_out = st_fc_out.reshape(seq_len, batch_size, -1)
 
         cnn_out = torch.cat((l_cnn_out, s_cnn_out, st_fc_out), dim=-1)
 
-        rnn_in = F.elu(self.merge_fc(cnn_out))
+        rnn_in = self.merge_fc(cnn_out)
 
-        rnn_out, hidden_state = self.rnn(rnn_in, hidden_state)
+        if self.rnn_type is not None:
+            rnn_out, hidden_state = self.rnn(rnn_in, hidden_state)
+        else:
+            rnn_out = rnn_in
+
         pi = self.actor_head(self.actor_fc(rnn_out))
         val = self.critic_head(self.critic_fc(rnn_out))
 
         # dist = Categorical(logits=pi)
-        dist = MultivariateNormal(loc=pi, covariance_matrix=torch.diag(self.log_std))
+        std = torch.exp(self.log_std)
+        dist = Independent(Normal(loc=pi, scale=std), 1)
         if action is None:
             if not deterministic:
                 action = dist.sample()
@@ -120,7 +120,7 @@ class PPONetsIG(nn.Module):
 
         expert_log_prob = dist.log_prob(expert_action) if expert_action is not None else None
 
-        return action, log_prob, dist.entropy(), val, hidden_state, pi, expert_log_prob
+        return action, log_prob, dist.entropy(), val, hidden_state.detach(), pi, expert_log_prob
 
     def init_hidden(self, batch_size):
         # The axes semantics are (num_layers, minibatch_size, hidden_dim)

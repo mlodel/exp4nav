@@ -34,20 +34,28 @@ class PPOAgentIG(BaseAgent):
         if args.resume or args.test or args.il_pretrain:
             self.load_model(step=args.resume_step)
 
+        self.permute_epochs = False
+
         self.reward_counter = np.zeros(self.config['num_envs'])
         self.reward_ig_counter = np.zeros(self.config['num_envs'])
         self.eps_steps_counter = np.zeros(self.config['num_envs'])
-        self.iter_bc_pretrain = 0.8e6 // (self.config['num_envs'] * self.num_steps)
+        self.iter_bc_pretrain = 0.0 * 1e6 // (self.config['num_envs'] * self.num_steps)  # 0.8e6
         self.iter_bc_decay = 1.5 * self.iter_bc_pretrain
 
-        self.bc_dagger = True
+        self.bc_dagger = False
         self.bc_dagger_beta = 0.0
 
-        self.curriculum_learning_iters = np.array([2e6 // self.nbatch, 4e6 // self.nbatch])
+        # self.curriculum_learning_iters = np.array([2e6 // self.nbatch, 4e6 // self.nbatch])
+        self.curriculum_learning_iters = np.array([0.0])
         self.curriculum_learning_start = 1
 
         self.hidden_state = self.net_model.init_hidden(self.config['num_envs'])
         self.val_env_obs = None
+
+        self.action_scaling = 4.0
+
+        self.kl_stopping = False
+        self.kl_target = 0.015
 
     def train(self):
         epinfobuf = deque(maxlen=10)
@@ -91,27 +99,32 @@ class PPOAgentIG(BaseAgent):
                         'bc_loss': []}
 
             # Train the Model
-            bc_factor = - 1.0 / (self.iter_bc_decay - self.iter_bc_pretrain) * iter \
-                        + self.iter_bc_decay / (self.iter_bc_decay - self.iter_bc_pretrain)
-            bc_factor = min(1.0, max(0.0, bc_factor))
+            if self.iter_bc_decay - self.iter_bc_pretrain > 0.0:
+                bc_factor = - 1.0 / (self.iter_bc_decay - self.iter_bc_pretrain) * iter \
+                            + self.iter_bc_decay / (self.iter_bc_decay - self.iter_bc_pretrain)
+                bc_factor = min(1.0, max(0.0, bc_factor))
+            else:
+                bc_factor = 1.0 if iter < self.iter_bc_pretrain else 0.0
+            continue_training = True
             opt_start_t = time.time()
             noptepochs = self.noptepochs
             for _ in range(noptepochs):
-                # TODO add permutation of rollouts
-                env_idc = torch.randperm(actions.shape[1])
+                if self.permute_epochs:
+                    env_idc = np.random.permutation(actions.shape[1])
+                else:
+                    env_idc = np.arange(actions.shape[1])
                 num_batches = int(np.ceil(actions.shape[1] / self.config['batch_size']))
                 for x in range(num_batches):
                     b_start = x * self.config['batch_size']
                     b_end = min(b_start + self.config['batch_size'], actions.shape[1])
 
                     # Permute rollouts
-                    # b_start = env_idc[int(b_start)]
-                    # b_end = env_idc[int(b_end)]
+                    b_idc = env_idc[int(b_start): int(b_end)]
 
                     large_maps, small_maps, states = obs
-                    b_large_maps, b_small_maps, b_states = map(lambda p: p[:, b_start:b_end],
+                    b_large_maps, b_small_maps, b_states = map(lambda p: p[:, b_idc],
                                                                (large_maps, small_maps, states))
-                    b_actions, b_returns, b_advs, b_log_probs, b_mpc_actions = map(lambda p: p[:, b_start:b_end],
+                    b_actions, b_returns, b_advs, b_log_probs, b_mpc_actions = map(lambda p: p[:, b_idc],
                                                                                    (actions, returns, advs, log_probs,
                                                                                     mpc_actions))
                     hidden_state = self.net_model.init_hidden(batch_size=b_end - b_start)
@@ -122,8 +135,11 @@ class PPOAgentIG(BaseAgent):
                                    b_returns, b_advs, b_log_probs, b_mpc_actions))
 
                         # Model Update
-                        info, hidden_state = self.net_train(*slices,
-                                                            hidden_state=hidden_state, bc_factor=bc_factor)
+                        info, hidden_state, continue_training = self.net_train(*slices,
+                                                                               hidden_state=hidden_state,
+                                                                               bc_factor=bc_factor,
+                                                                               continue_training=continue_training)
+
                         # Log Losses
                         lossvals['policy_loss'].append(info['pg_loss'])
                         lossvals['value_loss'].append(info['vf_loss'])
@@ -131,6 +147,9 @@ class PPOAgentIG(BaseAgent):
                         lossvals['approxkl'].append(info['approxkl'])
                         lossvals['clipfrac'].append(info['clipfrac'])
                         lossvals['bc_loss'].append(info['bc_loss'])
+
+            if not continue_training:
+                break
 
             tnow = time.time()
             int_t_per_epo = (tnow - opt_start_t) / float(self.noptepochs)
@@ -198,7 +217,7 @@ class PPOAgentIG(BaseAgent):
         return cum_seen_area, cum_rewards, cum_actions
 
     def net_train(self, large_maps, small_maps, states, actions, returns, advs,
-                  old_log_probs, mpc_actions, hidden_state, bc_factor=0.0):
+                  old_log_probs, mpc_actions, hidden_state, bc_factor=0.0, continue_training=True):
         self.net_model.train()
         actions = torch.from_numpy(actions).float().to(self.device)
         returns = torch.from_numpy(returns).float().to(self.device)
@@ -210,7 +229,7 @@ class PPOAgentIG(BaseAgent):
 
         large_maps = imagenet_rgb_preprocess(large_maps, device=self.device)
         small_maps = imagenet_rgb_preprocess(small_maps, device=self.device)
-        states = states_preprocess(states, device=self.device)
+        states, _ = states_preprocess(states, device=self.device)
 
         res = self.net_model(large_maps=large_maps,
                              small_maps=small_maps,
@@ -231,6 +250,8 @@ class PPOAgentIG(BaseAgent):
                                        1 + self.config['cliprange'])
         pg_loss = torch.mean(torch.max(pg_loss1, pg_loss2))
 
+        approxkl = 0.5 * torch.mean(torch.pow(old_log_probs - log_probs, 2))
+
         bc_loss = -torch.mean(mpc_log_probs)
 
         policy_loss = (1 - bc_factor) * pg_loss + bc_factor * bc_loss
@@ -238,7 +259,9 @@ class PPOAgentIG(BaseAgent):
         loss = policy_loss - torch.mean(entropy) * self.config['ent_coef'] + \
                vf_loss * self.config['vf_coef']
 
-        approxkl = 0.5 * torch.mean(torch.pow(old_log_probs - log_probs, 2))
+        if self.kl_stopping and approxkl > self.kl_target:
+            continue_training = False
+
         clipfrac = np.mean(np.abs(ratio.cpu().data.numpy() - 1.0) > self.config['cliprange'])
 
         self.optimizer.zero_grad()
@@ -255,7 +278,7 @@ class PPOAgentIG(BaseAgent):
             'clipfrac': clipfrac,
             'bc_loss': bc_loss.cpu().data.numpy()
         }
-        return info, hidden_state
+        return info, hidden_state, continue_training
 
     def n_rollout(self, repeat_num=1):
         # Run multiple rollouts and concatenate results
@@ -305,10 +328,11 @@ class PPOAgentIG(BaseAgent):
             obs_uint8 = self.val_env_obs
         else:  # Training Rollout
             # Set up Dagger and Expert in Env
-            use_expert = self.global_iter <= self.iter_bc_pretrain
+            use_expert = self.global_iter < self.iter_bc_pretrain
             comp_expert = self.global_iter <= self.iter_bc_decay
             if self.bc_dagger:
-                self.bc_dagger_beta = np.clip((-1 / self.iter_bc_pretrain * self.global_iter + 1), 0.0, 1.0)
+                self.bc_dagger_beta = np.clip((-1 / self.iter_bc_pretrain * self.global_iter + 1), 0.0, 1.0) \
+                    if self.iter_bc_pretrain > 0 else 0.0
             self.env.env_method('set_use_expert_action', 1, use_expert, 'ig_greedy', self.bc_dagger,
                                 self.bc_dagger_beta, comp_expert)
 
@@ -330,19 +354,17 @@ class PPOAgentIG(BaseAgent):
         # Init hidden states
         self.hidden_state = self.net_model.init_hidden(batch_size=self.config['num_envs'])
 
-        # TODO move elsewhere
-        state_keys = ['radius', 'heading_global_frame', 'angvel_global_frame', 'pos_global_frame', 'vel_global_frame']
+        map_key = 'ego_binary_map'
+
         for idx in range(self.num_steps):
 
             # Preprocess Observations
-            large_map = imagenet_rgb_preprocess(obs_uint8['ego_entropy_map'], device=self.device)
+            large_map = imagenet_rgb_preprocess(obs_uint8[map_key], device=self.device)
             small_map = imagenet_rgb_preprocess(obs_uint8['local_grid'], device=self.device)
-            obs_states = np.stack([np.hstack([obs_uint8[key][i] for key in state_keys])
-                                   for i in range(self.config['num_envs'])])
-            states = states_preprocess(obs_states, device=self.device)
+            states, obs_states = states_preprocess(obs_uint8, device=self.device)
 
             # Save Observations
-            mb_large_maps.append(obs_uint8['ego_entropy_map'])
+            mb_large_maps.append(obs_uint8[map_key])
             mb_small_maps.append(obs_uint8['local_grid'])
             mb_states.append(obs_states)
 
@@ -359,11 +381,12 @@ class PPOAgentIG(BaseAgent):
             mb_log_probs.append(np.squeeze(log_probs.cpu().data.numpy(), axis=0))
 
             # Step the Environment
-            obs_uint8, rewards, dones, infos = env.step(actions.cpu().data.numpy().flatten())
+            scaled_action = actions * self.action_scaling
+            obs_uint8, rewards, dones, infos = env.step(scaled_action.cpu().data.numpy().flatten())
 
             # Save Rewards Expert Actions
             mb_rewards.append(rewards)
-            mb_mpc_actions.append(np.stack([info["mpc_actions"] for info in infos]))
+            mb_mpc_actions.append(np.stack([info["mpc_actions"] / self.action_scaling for info in infos]))
 
             # TODO Reset hidden states for completed episodes
             done_idc = np.array(dones.nonzero()).squeeze()
@@ -404,11 +427,9 @@ class PPOAgentIG(BaseAgent):
 
         # Compute Value of last state for advantage computation
         # - Preprocess Observations
-        large_map = imagenet_rgb_preprocess(obs_uint8['ego_entropy_map'], device=self.device)
+        large_map = imagenet_rgb_preprocess(obs_uint8[map_key], device=self.device)
         small_map = imagenet_rgb_preprocess(obs_uint8['local_grid'], device=self.device)
-        obs_states = np.stack([np.hstack([obs_uint8[key][i] for key in state_keys])
-                               for i in range(self.config['num_envs'])])
-        states = states_preprocess(obs_states, device=self.device)
+        states, obs_states = states_preprocess(obs_uint8, device=self.device)
         # - Query the model
         res = self.net_model(large_maps=large_map,
                              small_maps=small_map,
